@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>视唱练听 Demo</title>
+  <script src="https://unpkg.com/vexflow/releases/vexflow-debug.js"></script>
+</head>
+<body>
+  <h1>视唱练听 Demo</h1>
+  <p>点击播放听题目，再在下方选择你听到的音符，最后点击批改。</p>
+
+  <!-- 选择练习 -->
+  <div>
+    <label for="exerciseSelect">选择练习：</label>
+    <select id="exerciseSelect"></select>
+    <span id="exerciseInfo">还未选择练习</span>
+  </div>
+
+  <!-- 播放按钮 -->
+  <div style="margin-top:10px;">
+    <button id="playBtn">播放题目</button>
+    <button id="gradeBtn">批改</button>
+    <span id="scoreText">还未批改</span>
+    <audio id="audioPlayer" style="display:none;"></audio>
+  </div>
+
+  <!-- 这里会画学生答案和正确答案 -->
+  <h3>你的答案（五线谱）</h3>
+  <div id="staffUser"></div>
+  <div id="answerInputs"></div>
+
+  <h3>正确答案</h3>
+  <div id="staffCorrect"></div>
+  <div id="resultBox" style="margin-top:10px; white-space:pre-line;"></div>
+
+  <script>
+    const VF = Vex.Flow;
+
+    // ===== 1. 练习配置（注意这里的 audioUrl 写的是本地文件名） =====
+    const exercises = [
+      {
+        id: 1,
+        name: "练习 1：C4-D4-E4",
+        audioUrl: "exercise1.mp3", // 你在同一目录下准备的音频文件名
+        answerNotes: ["C4", "D4", "E4"]
+      }
+    ];
+
+    const AVAILABLE_PITCHES = ["C4","D4","E4","F4","G4","A4","B4","C5"];
+
+    const exerciseSelect = document.getElementById("exerciseSelect");
+    const exerciseInfo = document.getElementById("exerciseInfo");
+    const playBtn = document.getElementById("playBtn");
+    const gradeBtn = document.getElementById("gradeBtn");
+    const audioPlayer = document.getElementById("audioPlayer");
+    const staffUserDiv = document.getElementById("staffUser");
+    const staffCorrectDiv = document.getElementById("staffCorrect");
+    const answerInputsDiv = document.getElementById("answerInputs");
+    const resultBox = document.getElementById("resultBox");
+    const scoreText = document.getElementById("scoreText");
+
+    let currentExercise = null;
+    let userAnswers = [];
+
+    function initExerciseSelect() {
+      exercises.forEach(ex => {
+        const opt = document.createElement("option");
+        opt.value = ex.id;
+        opt.textContent = ex.name;
+        exerciseSelect.appendChild(opt);
+      });
+      setCurrentExercise(exercises[0].id);
+    }
+
+    function setCurrentExercise(id) {
+      currentExercise = exercises.find(e => e.id === Number(id));
+      if (!currentExercise) return;
+      exerciseInfo.textContent = currentExercise.name + "（共 " + currentExercise.answerNotes.length + " 个音）";
+      audioPlayer.src = currentExercise.audioUrl;
+      userAnswers = new Array(currentExercise.answerNotes.length).fill("");
+      renderAnswerInputs();
+      renderUserStaff();
+      renderCorrectStaff();
+      scoreText.textContent = "还未批改";
+      resultBox.textContent = "";
+    }
+
+    exerciseSelect.addEventListener("change", e => {
+      setCurrentExercise(e.target.value);
+    });
+
+    function createStaffRenderer(container, width=500, height=120) {
+      container.innerHTML = "";
+      const renderer = new VF.Renderer(container, VF.Renderer.Backends.SVG);
+      renderer.resize(width, height);
+      const context = renderer.getContext();
+      const stave = new VF.Stave(10, 20, width - 20);
+      stave.addClef("treble");
+      stave.setContext(context).draw();
+      return { context, stave };
+    }
+
+    function makeNotesFromPitchArray(pitches) {
+      return pitches.map(p => {
+        if (!p) return null;
+        const match = p.match(/^([A-Ga-g])(#|b)?(\d)$/);
+        if (!match) return null;
+        const step = match[1].toLowerCase();
+        const acc = match[2] || "";
+        const oct = match[3];
+        return new VF.StaveNote({
+          clef: "treble",
+          keys: [`${step}${acc}/${oct}`],
+          duration: "q"
+        });
+      }).filter(Boolean);
+    }
+
+    function renderUserStaff() {
+      if (!currentExercise) return;
+      const { context, stave } = createStaffRenderer(staffUserDiv);
+      const notes = makeNotesFromPitchArray(userAnswers);
+      if (!notes.length) return;
+      const voice = new VF.Voice({num_beats: notes.length, beat_value: 4});
+      voice.addTickables(notes);
+      new VF.Formatter().joinVoices([voice]).format([voice], stave.getWidth() - 40);
+      voice.draw(context, stave);
+    }
+
+    function renderCorrectStaff() {
+      if (!currentExercise) return;
+      const { context, stave } = createStaffRenderer(staffCorrectDiv);
+      const notes = makeNotesFromPitchArray(currentExercise.answerNotes);
+      const voice = new VF.Voice({num_beats: notes.length, beat_value: 4});
+      voice.addTickables(notes);
+      new VF.Formatter().joinVoices([voice]).format([voice], stave.getWidth() - 40);
+      voice.draw(context, stave);
+    }
+
+    function renderAnswerInputs() {
+      answerInputsDiv.innerHTML = "请在这里选择你听到的音符：";
+      currentExercise.answerNotes.forEach((_, idx) => {
+        const sel = document.createElement("select");
+        const emptyOpt = document.createElement("option");
+        emptyOpt.value = "";
+        emptyOpt.textContent = "第" + (idx+1) + "音";
+        sel.appendChild(emptyOpt);
+        AVAILABLE_PITCHES.forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = p;
+          opt.textContent = p;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener("change", e => {
+          userAnswers[idx] = e.target.value;
+          renderUserStaff();
+        });
+        answerInputsDiv.appendChild(sel);
+      });
+    }
+
+    playBtn.addEventListener("click", () => {
+      if (!audioPlayer.src) {
+        alert("没有找到音频文件");
+        return;
+      }
+      audioPlayer.currentTime = 0;
+      audioPlayer.play();
+    });
+
+    gradeBtn.addEventListener("click", () => {
+      const correct = currentExercise.answerNotes;
+      let correctCount = 0;
+      let filledCount = 0;
+      correct.forEach((note, i) => {
+        const u = (userAnswers[i] || "").toUpperCase();
+        if (u) filledCount++;
+        if (u === note.toUpperCase()) correctCount++;
+      });
+      const total = correct.length;
+      const score = Math.round(correctCount / total * 100);
+      scoreText.textContent = "得分：" + score + " 分";
+      resultBox.textContent =
+        `共 ${total} 个音，你填写了 ${filledCount} 个，其中 ${correctCount} 个正确。\n` +
+        `正确答案为：` + correct.join(" - ");
+    });
+
+    initExerciseSelect();
+  </script>
+</body>
+</html>
